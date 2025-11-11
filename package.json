@@ -4,7 +4,7 @@
   "description": "Node.js Backend for Check-Host Monitor",
   "main": "server.js",
   "scripts": {
-    "start": "node full_stack_monitor_single_file.js" 
+    "start": "node index.js" 
   },
   "dependencies": {
     "express": "^4.18.2",
