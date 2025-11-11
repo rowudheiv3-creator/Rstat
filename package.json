@@ -2,16 +2,16 @@
   "name": "rstat",
   "version": "1.0.0",
   "description": "Node.js Backend",
-  "main": "server.js",
+  "main": "index.js", <--- ✔️ บรรทัด 8 (หรือใกล้เคียง) ควรเป็น Key ที่ถูกต้อง
   "scripts": {
     "start": "node full_stack_monitor_single_file.js"
-  }, <--- ✔️ ต้องมีคอมมา เพราะมี Property อื่นตามมา ("dependencies")
+  },
   "dependencies": {
     "express": "^4.18.2",
     "axios": "^1.6.0",
-    "cors": "^2.8.5" <--- ✔️ ไม่ต้องมีคอมมา เพราะเป็นตัวสุดท้ายใน Object นี้
-  }, <--- ✔️ ต้องมีคอมมา เพราะมี Property อื่นตามมา ("engines")
+    "cors": "^2.8.5"
+  },
   "engines": {
-    "node": "18.x" <--- ✔️ ไม่ต้องมีคอมมา เพราะเป็นตัวสุดท้ายใน Object นี้
+    "node": "18.x"
   }
 }
