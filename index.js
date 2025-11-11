@@ -1,15 +1,174 @@
+// ====================================================================
+// full_stack_monitor_single_file.js (V3.0)
+// Full-Stack URL Monitor: Serves Frontend and handles Check-Host API
+// Dependencies: express, axios, cors
+// ====================================================================
+
+const express = require('express');
+const axios = require('axios');
+const cors = require('cors'); 
+
+const app = express();
+
+// ** IMPORTANT: Cloud Hosting Port Configuration **
+// Use the port defined by the environment (e.g., Koyeb's 8000), or default to 3000 for local development.
+const PORT = process.env.PORT || 3000; 
+const CHECK_HOST_BASE_URL = 'https://check-host.net';
+
+// --- CONFIGURATION ---
+const DEFAULT_NODE_ID = 'sg1.node.check-host.net'; 
+
+// Mapping Method to check-host.net Endpoint
+const METHOD_ENDPOINT_MAP = {
+    'http': 'check-http',
+    'ping': 'check-ping',
+    'tcp': 'check-tcp',
+    'dns': 'check-dns',
+    'whois': 'check-whois'
+};
+
+// --- Utility Functions ---
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+// --- Middleware ---
+app.use(cors()); 
+app.use(express.json());
+
+
+// ====================================================================
+// 🌐 1. NODE.JS BACKEND (API Handler)
+// ====================================================================
+
+app.post('/api/check', async (req, res) => {
+    const { url, method } = req.body; 
+
+    if (!url || !method) {
+        return res.status(400).json({ error: 'URL and Method are required.' });
+    }
+    
+    const apiEndpoint = METHOD_ENDPOINT_MAP[method];
+
+    if (!apiEndpoint) {
+        return res.status(400).json({ 
+            isBackendError: true,
+            errorDetail: `Unsupported method: ${method}.`,
+            statusCode: 0 
+        });
+    }
+
+    const node_id = DEFAULT_NODE_ID;
+    let request_id = null;
+    
+    try {
+        // STEP 1: START CHECK & GET REQUEST ID
+        const checkUrl = `${CHECK_HOST_BASE_URL}/${apiEndpoint}?host=${url}&node=${node_id}`;
+        
+        const startResponse = await axios.get(checkUrl, {
+            headers: { 'Accept': 'application/json' },
+            timeout: 8000 
+        });
+
+        if (startResponse.data.ok !== 1 || !startResponse.data.request_id) {
+            if (apiEndpoint === 'check-whois' || apiEndpoint === 'check-dns') {
+                 // Non-polling methods return initial result immediately
+                return res.status(200).json({ 
+                    isUp: true, 
+                    latency: 0, 
+                    statusCode: 200, 
+                    message: `Initial result for ${method}: ${startResponse.data.message || 'Data received.'}` 
+                });
+            }
+
+            return res.status(200).json({ 
+                isBackendError: true,
+                errorDetail: `Check-Host API rejected the request for method ${method}.`,
+                statusCode: 0 
+            });
+        }
+
+        request_id = startResponse.data.request_id;
+        
+        // STEP 2: WAIT AND GET CHECK RESULTS (POLLING)
+        let checkResult = null;
+        let attempt = 0;
+        const maxAttempts = 6;
+        await delay(2500); 
+
+        while (!checkResult && attempt < maxAttempts) {
+            const resultUrl = `${CHECK_HOST_BASE_URL}/check-result/${request_id}`;
+            const resultResponse = await axios.get(resultUrl, {
+                headers: { 'Accept': 'application/json' },
+                timeout: 5000
+            });
+
+            const nodeResult = resultResponse.data[node_id];
+
+            if (nodeResult && nodeResult[0]) {
+                checkResult = nodeResult[0]; 
+                break;
+            }
+
+            attempt++;
+            await delay(1500); 
+        }
+        
+        if (!checkResult) {
+            return res.status(200).json({
+                latency: 6000,
+                statusCode: 599, 
+                isUp: false,
+                errorRate: 1,
+                errorDetail: `Check-Host node did not return result for ${method} within timeout.`
+            });
+        }
+
+        // STEP 3: PROCESS AND RETURN DATA TO FRONTEND
+        const [isUpRaw, latencySeconds, message, statusCodeRaw] = checkResult;
+
+        const isUp = isUpRaw === 1;
+        const latencyMs = Math.round((latencySeconds || 0) * 1000); 
+        const statusCode = parseInt(statusCodeRaw || '0'); 
+        
+        res.status(200).json({
+            latency: latencyMs,
+            statusCode: statusCode,
+            isUp: isUp,
+            message: message 
+        });
+
+    } catch (error) {
+        let errorDetail = `Backend failed to connect to Check-Host: ${error.message}`;
+        if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
+            errorDetail = `Backend Timeout when calling Check-Host API for ${method}.`;
+        }
+        
+        console.error('[BACKEND ERROR]', errorDetail);
+        
+        res.status(200).json({ 
+            isBackendError: true,
+            errorDetail: errorDetail,
+            statusCode: 0 
+        });
+    }
+});
+
+
+// ====================================================================
+// 🖥️ 2. NODE.JS FRONTEND (HTML/CSS/JS Serving)
+// ====================================================================
+
+const htmlContent = `
 <!DOCTYPE html>
 <html lang="th">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title id="appTitle">URL Monitor V19: Method Select</title>
+    <title id="appTitle">URL Monitor V3.0 (Single File)</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     
     <style>
-        /* (Styles are mostly unchanged) */
         :root {
             --primary-color: #0d6efd;
             --success-color: #00e676;
@@ -114,7 +273,7 @@
     
     <div id="urlInputPage" class="full-screen-center" style="display: none;">
         <div class="card shadow p-5 bg-dark text-white" style="width: 550px; border: 1px solid #00ffff;">
-            <h3 class="card-title text-center mb-4"><i class="fas fa-microchip text-danger"></i> URL MONITOR SETUP (V19)</h3>
+            <h3 class="card-title text-center mb-4"><i class="fas fa-microchip text-danger"></i> URL MONITOR SETUP (V3.0)</h3>
             <p class="text-center text-muted">ตรวจสอบ URL ทั่วไปผ่าน Check-Host.net</p>
             
             <form id="urlInputForm">
@@ -137,7 +296,7 @@
                 <button type="submit" class="btn btn-danger w-100 mt-4"><i class="fas fa-satellite-dish"></i> START REAL-TIME FETCH</button>
                 
                 <p class="small text-muted text-center mt-3">
-                    <i class="fas fa-exclamation-triangle"></i> **WARNING:** ต้องรัน Node.js Backend Server ที่ **http://localhost:3000**
+                    <i class="fas fa-exclamation-triangle"></i> **INFO:** Server Address: <span id="serverAddress">Loading...</span>
                 </p>
             </form>
         </div>
@@ -181,10 +340,6 @@
                     <span class="d-block text-secondary small">URL ERROR RATE (%)</span>
                     <h2 class="text-error metric-value" id="metricErrors">0.00%</h2>
                 </div>
-                <div class="config-card text-center" id="vuMetricCard" style="display:none;">
-                    <span class="d-block text-secondary small">VIRTUAL USER LOAD</span>
-                    <h2 class="text-load metric-value" id="metricVUs">0</h2>
-                </div>
                 
                 <div class="mt-3 p-3 bg-dark rounded config-card" style="border: 1px solid var(--warning-color);">
                     <h6 class="text-white"><i class="fas fa-brain text-success"></i> INSIGHT (Triage)</h6>
@@ -210,7 +365,7 @@
         </div>
             
         <footer class="text-center mt-5 mb-3 text-muted small">
-            © 2025 URL MONITOR V19. Method Select Edition.
+            © 2025 URL MONITOR V3.0. Single File Edition.
         </footer>
     </div>
     
@@ -222,8 +377,9 @@
         const UPDATE_INTERVAL_MS = DEFAULT_INTERVAL_SECONDS * 1000;
         const MAX_DATA_POINTS = 60; 
         const HIGH_LATENCY_THRESHOLD = 2000; 
-        const BACKEND_API_ENDPOINT = 'http://localhost:3000/api/check'; 
-        const SPLASH_DISPLAY_TIME_MS = 2000; 
+        // ** API Endpoint คือของตัวเอง ไม่ต้องระบุ localhost/URL ภายนอก **
+        const BACKEND_API_ENDPOINT = '/api/check'; 
+        const SPLASH_DISPLAY_TIME_MS = 1000; 
         
         let chartInstance;
         let testTimer;
@@ -242,7 +398,7 @@
             document.getElementById('triageAction2').innerHTML = action;
             document.getElementById('triageSection').style.display = 'block';
 
-            logMessage(`[AUTO-TRIAGE] Monitoring PAUSED. Issue: ${issue}`, 'danger');
+            logMessage(\`[AUTO-TRIAGE] Monitoring PAUSED. Issue: \${issue}\`, 'danger');
         }
 
         function resumeMonitoring() {
@@ -251,13 +407,15 @@
             document.getElementById('triageSection').style.display = 'none';
             isMonitoringPaused = false;
             
-            logMessage(`[AUTO-TRIAGE] Monitoring RESUMED. Starting check cycle.`, 'warning');
+            logMessage(\`[AUTO-TRIAGE] Monitoring RESUMED. Starting check cycle.\`, 'warning');
             startMonitoring(monitoredTarget.interval);
         }
         
         // --- 6.1 Initialization & Splash Screen Logic ---
         document.addEventListener('DOMContentLoaded', () => {
             initializeChart();
+            document.getElementById('serverAddress').textContent = window.location.origin;
+            
             setTimeout(() => {
                 const splash = document.getElementById('splashScreen');
                 splash.classList.add('fade-out'); 
@@ -275,16 +433,14 @@
             e.preventDefault();
             
             const url = document.getElementById('targetUrl').value;
-            // V19 Change: ดึงค่า Method ที่เลือก
             const method = document.getElementById('monitoringMethod').value;
             
             monitoredTarget = { 
                 url: url, 
-                method: method, // V19 Store Method
+                method: method, 
                 interval: UPDATE_INTERVAL_MS
             };
             
-            // V19 Change: ส่ง Method ไปที่ Dashboard
             showDashboard(url, method); 
 
             if (chartInstance) {
@@ -316,16 +472,13 @@
             logMessage('MONITORING TERMINATED.', 'danger');
         }
 
-        // V19 Change: รับค่า method
         function showDashboard(url, method) {
             document.getElementById('monitoredUrl').textContent = new URL(url).hostname;
-            document.getElementById('monitoredMethod').textContent = method.toUpperCase(); // V19 Display Method
+            document.getElementById('monitoredMethod').textContent = method.toUpperCase(); 
             document.getElementById('urlInputPage').style.display = 'none';
             document.getElementById('mainDashboard').style.display = 'block';
             
-            document.getElementById('vuMetricCard').style.display = 'none'; 
-            
-            logMessage(`DASHBOARD LOADED. Starting check via Backend: ${BACKEND_API_ENDPOINT} with METHOD: ${method}`, 'success');
+            logMessage(\`DASHBOARD LOADED. Starting check via Backend: \${window.location.origin}\${BACKEND_API_ENDPOINT} with METHOD: \${method}\`, 'success');
         }
 
         function startMonitoring(interval) {
@@ -337,12 +490,12 @@
         }
         
         // --------------------------------------------------------
-        // V19: CORE FETCH FUNCTION (Sends URL and Method)
+        // V3.0: CORE FETCH FUNCTION (Sends URL and Method to self)
         // --------------------------------------------------------
         async function fetchRealData() { 
             if (!monitoredTarget || isMonitoringPaused) return;
 
-            logMessage(`[FETCH] Requesting check for ${monitoredTarget.url} using ${monitoredTarget.method}...`, 'info');
+            logMessage(\`[FETCH] Requesting check for \${monitoredTarget.url} using \${monitoredTarget.method}...\`, 'info');
             
             let avgLatency = 0;
             let errorRate = 1;
@@ -351,36 +504,37 @@
             let isBackendIssue = false; 
 
             try {
-                const response = await fetch(BACKEND_API_ENDPOINT, {
+                // Use relative path: /api/check
+                const response = await fetch(BACKEND_API_ENDPOINT, { 
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ 
                         url: monitoredTarget.url,
-                        method: monitoredTarget.method // V19 Send Method to Backend
+                        method: monitoredTarget.method 
                     })
                 });
                 
                 if (!response.ok) {
-                    throw new Error(`Backend HTTP Error: Status ${response.status}`);
+                    throw new Error(\`Backend HTTP Error: Status \${response.status}\`);
                 }
                 
                 const data = await response.json();
 
                 if (data.isBackendError) {
                     isBackendIssue = true;
-                    insightMessage = `🚨 **BACKEND ERROR:** Node.js มีปัญหาในการติดต่อ Check-Host API (${data.errorDetail}) อาจเกิดจาก Network/Firewall.`;
-                    logMessage(`[BACKEND ERROR] ${data.errorDetail}`, 'danger');
+                    insightMessage = \`🚨 **BACKEND ERROR:** Server มีปัญหาในการติดต่อ Check-Host API (\${data.errorDetail}) อาจเกิดจาก Network/Firewall.\`;
+                    logMessage(\`[BACKEND ERROR] \${data.errorDetail}\`, 'danger');
                     
                     pauseMonitoring(
-                        'Node.js Backend ไม่สามารถติดต่อ Check-Host.net ได้', 
-                        'ตรวจสอบ **Internet Connection** ของเครื่องเซิร์ฟเวอร์ และ **Firewall** ว่าได้อนุญาตให้ Node.js เชื่อมต่อออกไปยังภายนอกหรือไม่'
+                        'Server Node.js ไม่สามารถติดต่อ Check-Host.net ได้', 
+                        'ตรวจสอบ **Network/Firewall** ของ Server หรือผู้ให้บริการ Cloud ว่ามีการบล็อกการเชื่อมต่อขาออก (Outbound) หรือไม่'
                     );
 
                 } else {
                     avgLatency = parseFloat(data.latency).toFixed(2);
                     errorRate = data.isUp ? 0 : 1; 
                     statusCode = data.statusCode;
-                    logMessage(`[RESULT:${monitoredTarget.method}] CODE ${statusCode} | Latency ${avgLatency}ms`, data.isUp ? 'success' : 'danger');
+                    logMessage(\`[RESULT:\${monitoredTarget.method}] CODE \${statusCode} | Latency \${avgLatency}ms\`, data.isUp ? 'success' : 'danger');
                 }
 
             } catch(e) {
@@ -388,12 +542,12 @@
                 avgLatency = 0;
                 errorRate = 1; 
                 statusCode = 0;
-                insightMessage = `❌ **FATAL CONNECTION ERROR:** ไม่สามารถติดต่อ Node.js Backend ได้ (Failed to fetch).`;
-                logMessage(`[CRITICAL ERROR] Failed to connect to Node.js Backend: ${e.message}`, 'danger');
+                insightMessage = \`❌ **FATAL CONNECTION ERROR:** ไม่สามารถติดต่อ Server API ได้ (\${e.message}).\`;
+                logMessage(\`[CRITICAL ERROR] Failed to fetch API: \${e.message}\`, 'danger');
 
                 pauseMonitoring(
-                    'Node.js Backend Server ออฟไลน์/ล่ม/ถูกบล็อกการเชื่อมต่อ', 
-                    'ตรวจสอบ Command Prompt/Terminal ว่า **`npm start`** ยังทำงานอยู่หรือไม่ และเปิดเบราว์เซอร์เข้า **`http://localhost:3000`** เพื่อดูว่า Backend ตอบสนองหรือไม่'
+                    'Server API ออฟไลน์/ล่ม/ถูกบล็อกการเชื่อมต่อ', 
+                    'ถ้าคุณรันในเครื่อง: ตรวจสอบ Terminal ว่า Node.js ยังทำงานอยู่หรือไม่ ถ้าเป็น Cloud: ตรวจสอบ Log และสถานะ Health Check'
                 );
             }
             
@@ -403,36 +557,36 @@
             // 2. Update UI
             let statusText = 'OPERATIONAL';
             let statusClass = 'text-uptime';
-            let statusCodeDisplay = `${statusCode}`;
+            let statusCodeDisplay = \`\${statusCode}\`;
 
             if (isBackendIssue) {
-                statusText = isMonitoringPaused ? 'MONITORING PAUSED' : 'BACKEND OFFLINE / CRASHED';
+                statusText = isMonitoringPaused ? 'MONITORING PAUSED' : 'SERVER ERROR';
                 statusClass = 'text-error status-critical';
                 statusCodeDisplay = 'N/A';
             } else if (errorRate > 0) { 
                 statusText = (statusCode >= 500 || statusCode === 599 || statusCode === 0) ? 'SERVER OUTAGE' : 'REQUEST FAILURE';
                 statusClass = 'text-error status-critical';
-                statusCodeDisplay = `${statusCode} FAILURE`;
-                insightMessage = `🚨 **CRITICAL!** ${monitoredTarget.method.toUpperCase()} Check Failed (${statusCode}). **ACTION: Check target URL/Service.**`;
+                statusCodeDisplay = \`\${statusCode} FAILURE\`;
+                insightMessage = \`🚨 **CRITICAL!** \${monitoredTarget.method.toUpperCase()} Check Failed (\${statusCode}). **ACTION: Check target URL/Service.**\`;
 
             } else if (avgLatency >= HIGH_LATENCY_THRESHOLD) { 
                 statusText = 'HIGH LATENCY';
                 statusClass = 'text-latency';
-                statusCodeDisplay = `${statusCode} Latency Warning`;
-                insightMessage = `🐌 **BOTTLENECK:** High latency (**${avgLatency}ms**) detected for ${monitoredTarget.method.toUpperCase()}. **ACTION: Check network path.**`;
+                statusCodeDisplay = \`\${statusCode} Latency Warning\`;
+                insightMessage = \`🐌 **BOTTLENECK:** High latency (**\${avgLatency}ms**) detected for \${monitoredTarget.method.toUpperCase()}. **ACTION: Check network path.**\`;
             
             } else {
-                statusCodeDisplay = `${statusCode} OK`;
-                insightMessage = `Real-time data for ${monitoredTarget.url} via ${monitoredTarget.method.toUpperCase()}. Latency is stable.`;
+                statusCodeDisplay = \`\${statusCode} OK\`;
+                insightMessage = \`Real-time data for \${monitoredTarget.url} via \${monitoredTarget.method.toUpperCase()}. Latency is stable.\`;
             }
 
             document.getElementById('currentStatusText').textContent = statusText;
-            document.getElementById('currentStatusText').className = `metric-value mt-2 ${statusClass}`;
-            document.getElementById('currentStatusCode').textContent = `CODE: ${statusCodeDisplay}`;
-            document.getElementById('currentStatusCode').className = `badge p-2 ${statusClass.includes('status-critical') ? 'bg-danger' : 'bg-primary'}`;
+            document.getElementById('currentStatusText').className = \`metric-value mt-2 \${statusClass}\`;
+            document.getElementById('currentStatusCode').textContent = \`CODE: \${statusCodeDisplay}\`;
+            document.getElementById('currentStatusCode').className = \`badge p-2 \${statusClass.includes('status-critical') ? 'bg-danger' : 'bg-primary'}\`;
             
             document.getElementById('metricLatency').textContent = avgLatency;
-            document.getElementById('metricErrors').textContent = `${(errorRate * 100).toFixed(2)}%`;
+            document.getElementById('metricErrors').textContent = \`\${(errorRate * 100).toFixed(2)}%\`;
             document.getElementById('insightText').innerHTML = insightMessage;
             
             if (chartInstance && !isMonitoringPaused) {
@@ -445,11 +599,7 @@
         }
         
         // --- 6.3 Chart Setup / Utility Functions (Unchanged) ---
-        function initializeChart() { /* ... unchanged ... */ }
-        function updateChart(uptimeValue) { /* ... unchanged ... */ }
-        function logMessage(message, type = 'info') { /* ... unchanged ... */ }
-        
-        function initializeChart() {
+        function initializeChart() { 
             const ctx = document.getElementById('loadChart');
             if (chartInstance) { chartInstance.destroy(); }
             Chart.defaults.color = '#ccc';
@@ -514,7 +664,7 @@
             else if (type === 'warning') color = 'var(--warning-color)';
             else if (type === 'info') color = 'var(--primary-color)';
             
-            item.innerHTML = `<span style="color: ${color};">[${time}] ${message}</span>`;
+            item.innerHTML = \`<span style="color: \${color};">[${time}] \${message}</span>\`;
             logElement.appendChild(item);
             logElement.scrollTop = logElement.scrollHeight;
         }
@@ -522,3 +672,18 @@
     </script>
 </body>
 </html>
+`;
+
+app.get('/', (req, res) => {
+    res.send(htmlContent);
+});
+
+// --- Start the Server ---
+app.listen(PORT, () => {
+    console.log(`✅ Full-Stack Monitor Server running on port ${PORT}`);
+    if (PORT == 3000) {
+        console.log(`🌐 Open in browser: http://localhost:3000`);
+    } else {
+        console.log(`⚠️ Check your Cloud provider's logs for the public URL.`);
+    }
+});
