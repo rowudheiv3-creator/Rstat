@@ -4,14 +4,14 @@
   "description": "Node.js Backend for Check-Host Monitor",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js" 
+    "start": "node full_stack_monitor_single_file.js" 
   },
   "dependencies": {
     "express": "^4.18.2",
     "axios": "^1.6.0",
-    "cors": "^2.8.5"
-  },
+    "cors": "^2.8.5"  // <--- ตัวนี้คือตัวสุดท้ายใน "dependencies", ห้ามมีคอมมาต่อท้าย
+  },                    
   "engines": {
-    "node": "18.x" // หรือเวอร์ชันที่คุณใช้ เช่น 20.x 
-  }
-}
+    "node": "18.x"    // <--- ตัวนี้คือตัวสุดท้ายใน "engines", ห้ามมีคอมมาต่อท้าย
+  }                     // <--- ถ้ามี Property อื่นต่อจาก "engines" ต้องใส่คอมมาหลังปีกกาปิดนี้
+}                       // <--- ตัวนี้คือวงเล็บปีกกาปิดของ Object ใหญ่สุด, ห้ามมีคอมมา
