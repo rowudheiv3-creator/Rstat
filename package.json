@@ -1,17 +1,17 @@
 {
-  "name": "check-host-monitor-backend",
+  "name": "rstat",
   "version": "1.0.0",
-  "description": "Node.js Backend for Check-Host Monitor",
+  "description": "Node.js Backend",
   "main": "server.js",
   "scripts": {
-    "start": "node index.js" 
-  },
+    "start": "node full_stack_monitor_single_file.js"
+  }, <--- ✔️ ต้องมีคอมมา เพราะมี Property อื่นตามมา ("dependencies")
   "dependencies": {
     "express": "^4.18.2",
     "axios": "^1.6.0",
-    "cors": "^2.8.5"  // <--- ตัวนี้คือตัวสุดท้ายใน "dependencies", ห้ามมีคอมมาต่อท้าย
-  },                    
+    "cors": "^2.8.5" <--- ✔️ ไม่ต้องมีคอมมา เพราะเป็นตัวสุดท้ายใน Object นี้
+  }, <--- ✔️ ต้องมีคอมมา เพราะมี Property อื่นตามมา ("engines")
   "engines": {
-    "node": "18.x"    // <--- ตัวนี้คือตัวสุดท้ายใน "engines", ห้ามมีคอมมาต่อท้าย
-  }                     // <--- ถ้ามี Property อื่นต่อจาก "engines" ต้องใส่คอมมาหลังปีกกาปิดนี้
-}                       // <--- ตัวนี้คือวงเล็บปีกกาปิดของ Object ใหญ่สุด, ห้ามมีคอมมา
+    "node": "18.x" <--- ✔️ ไม่ต้องมีคอมมา เพราะเป็นตัวสุดท้ายใน Object นี้
+  }
+}
