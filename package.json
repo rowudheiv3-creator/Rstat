@@ -4,8 +4,7 @@
   "description": "Node.js Backend for Check-Host Monitor",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",  <-- **ต้องมีบรรทัดนี้**
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node server.js" 
   },
   "dependencies": {
     "express": "^4.18.2",
@@ -13,6 +12,6 @@
     "cors": "^2.8.5"
   },
   "engines": {
-    "node": ">=18.0.0"  <-- **แนะนำให้ใส่**
+    "node": "18.x" // หรือเวอร์ชันที่คุณใช้ เช่น 20.x 
   }
 }
